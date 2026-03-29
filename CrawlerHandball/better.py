@@ -6,22 +6,22 @@ from datetime import datetime
 from playwright.async_api import async_playwright
 
 TOURNAMENT_ID = "149"
-CONCURRENCY_LIMIT = 80
-
+CONCURRENCY_LIMIT = 100
 
 async def get_match_data(context, match_id):
     try:
-        # 1. PARALELNÍ VOLÁNÍ: Přidán dotaz na kurzy (odds)
+        # 1. PARALELNÍ VOLÁNÍ: Základní info, Sestavy a Kurzy
         event_task = context.request.get(f"https://www.sofascore.com/api/v1/event/{match_id}")
         lineups_task = context.request.get(f"https://www.sofascore.com/api/v1/event/{match_id}/lineups")
         odds_task = context.request.get(f"https://www.sofascore.com/api/v1/event/{match_id}/odds/1/all")
 
-        # Počkáme, až se VŠECHNY TŘI dotazy dokončí
-        event_resp, lineups_resp, odds_resp = await asyncio.gather(event_task, lineups_task, odds_task)
+        resps = await asyncio.gather(event_task, lineups_task, odds_task)
+        event_resp, lineups_resp, odds_resp = resps
 
         if not event_resp.ok:
             return None
 
+        # --- ZÁKLADNÍ INFO O ZÁPASU ---
         event_json = await event_resp.json()
         event = event_json.get("event", {})
 
@@ -30,67 +30,89 @@ async def get_match_data(context, match_id):
         home_goals = event.get("homeScore", {}).get("current", 0)
         away_goals = event.get("awayScore", {}).get("current", 0)
 
-        start_timestamp = event.get("startTimestamp")
-        date_final = datetime.fromtimestamp(start_timestamp).strftime('%d.%m.%Y') if start_timestamp else "Unknown Date"
+        start_ts = event.get("startTimestamp")
+        date_final = datetime.fromtimestamp(start_ts).strftime('%d.%m.%Y') if start_ts else "Unknown Date"
 
-        home_players, away_players = [], []
+        # --- HRÁČI A RATINGY ---
+        home_players_data = []
+        away_players_data = []
 
         if lineups_resp.ok:
             lineups_json = await lineups_resp.json()
-            if "home" in lineups_json:
-                home_players = [p.get("player", {}).get("name") for p in lineups_json["home"].get("players", [])]
-            if "away" in lineups_json:
-                away_players = [p.get("player", {}).get("name") for p in lineups_json["away"].get("players", [])]
 
-        # --- ZPRACOVÁNÍ KURZŮ ---
+            # Pomocná funkce pro vytažení dat z listu hráčů
+            def parse_players(player_list):
+                extracted = []
+                for p in player_list:
+                    p_name = p.get("player", {}).get("name", "Unknown Player")
+                    p_pos = p.get("player", {}).get("position", "")  # 'G' = Goalkeeper
+                    stats = p.get("statistics", {})
+
+                    # Logika pro brankáře
+                    if p_pos == "G":
+                        # SofaScore posílá 'saves' a 'shotsFaced'
+                        saves = stats.get("saves", 0)
+                        shots = stats.get("shotsFaced", 0)
+                        # Výpočet procent (např. 0.35 pro 35%)
+                        save_percentage = round(saves / shots, 2) if shots and shots > 0 else 0.0
+
+                        extracted.append({
+                            "jmeno": p_name,
+                            "uspesnost_zakroku": save_percentage,
+                            "zakroky": saves
+                        })
+
+                    # Logika pro hráče v poli
+                    else:
+                        p_goals = stats.get("goals", 0)
+                        extracted.append({
+                            "jmeno": p_name,
+                            "goly": int(p_goals) if p_goals else 0
+                        })
+                return extracted
+
+            home_players_data = parse_players(lineups_json.get("home", {}).get("players", []))
+            away_players_data = parse_players(lineups_json.get("away", {}).get("players", []))
+
+        # --- KURZY (1X2) ---
         kurz_1, kurz_X, kurz_2 = None, None, None
-
         if odds_resp.ok:
-            try:
-                odds_json = await odds_resp.json()
-                markets = odds_json.get("markets", [])
+            odds_json = await odds_resp.json()
+            for market in odds_json.get("markets", []):
+                if market.get("marketName") == "Full time":
+                    for choice in market.get("choices", []):
+                        name = choice.get("name")
+                        frac = choice.get("fractionalValue")
+                        if frac and "/" in frac:
+                            n, d = frac.split("/")
+                            # Výpočet desetinného kurzu: 1 + (n/d)
+                            decimal_odd = round(1 + (int(n) / int(d)), 2)
+                            if name == "1":
+                                kurz_1 = decimal_odd
+                            elif name == "X":
+                                kurz_X = decimal_odd
+                            elif name == "2":
+                                kurz_2 = decimal_odd
+                    break
 
-                # Hledáme trh "Full time" (klasická 1X2 sázka)
-                for market in markets:
-                    if market.get("marketName") == "Full time":
-                        choices = market.get("choices", [])
-                        for choice in choices:
-                            name = choice.get("name")  # "1", "X", nebo "2"
-                            fraction = choice.get("fractionalValue")  # např. "5/2"
-
-                            if fraction and "/" in fraction:
-                                # Převod zlomku na desetinný kurz (např. 5/2 -> 1 + (5/2) = 3.50)
-                                num, den = fraction.split("/")
-                                decimal_odd = round(1 + (int(num) / int(den)), 2)
-
-                                if name == "1":
-                                    kurz_1 = decimal_odd
-                                elif name == "X":
-                                    kurz_X = decimal_odd
-                                elif name == "2":
-                                    kurz_2 = decimal_odd
-                        break  # Jakmile najdeme Full time, nemusíme procházet další trhy (Góly, Handicapy atd.)
-            except Exception as e:
-                print(f"Chyba při parsování kurzů u {match_id}: {e}")
-
+        # --- FINÁLNÍ OBJEKT ---
         return {
-            "match_id": match_id,
+            "match_id": str(match_id),
             "datum_zapasu": date_final,
             "domaci_tym": home_team.strip(),
             "hoste_tym": away_team.strip(),
-            "goly_domaci": str(home_goals),
-            "goly_hoste": str(away_goals),
+            "goly_domaci": int(home_goals),
+            "goly_hoste": int(away_goals),
             "kurz_domaci": kurz_1,
             "kurz_remiza": kurz_X,
             "kurz_hoste": kurz_2,
-            "domaci_hraci": home_players,
-            "hoste_hraci": away_players
+            "domaci_hraci": home_players_data,
+            "hoste_hraci": away_players_data
         }
 
     except Exception as e:
-        print(f"Chyba u zápasu {match_id}: {e}")
+        print(f"Chyba u match_id {match_id}: {e}")
         return None
-
 
 async def main():
     async with async_playwright() as p:
