@@ -8,15 +8,18 @@ from playwright.async_api import async_playwright
 TOURNAMENT_ID = "149"
 CONCURRENCY_LIMIT = 100
 
+
 async def get_match_data(context, match_id):
     try:
-        # 1. PARALELNÍ VOLÁNÍ: Základní info, Sestavy a Kurzy
+        # 1. PARALELNÍ VOLÁNÍ: Základní info, Sestavy, Kurzy a Detailní Statistiky Hráčů
         event_task = context.request.get(f"https://www.sofascore.com/api/v1/event/{match_id}")
         lineups_task = context.request.get(f"https://www.sofascore.com/api/v1/event/{match_id}/lineups")
         odds_task = context.request.get(f"https://www.sofascore.com/api/v1/event/{match_id}/odds/1/all")
+        # Přidaný dotaz pro detailní statistiky hráčů
+        pstats_task = context.request.get(f"https://www.sofascore.com/api/v1/event/{match_id}/player-statistics")
 
-        resps = await asyncio.gather(event_task, lineups_task, odds_task)
-        event_resp, lineups_resp, odds_resp = resps
+        resps = await asyncio.gather(event_task, lineups_task, odds_task, pstats_task)
+        event_resp, lineups_resp, odds_resp, pstats_resp = resps
 
         if not event_resp.ok:
             return None
@@ -33,32 +36,62 @@ async def get_match_data(context, match_id):
         start_ts = event.get("startTimestamp")
         date_final = datetime.fromtimestamp(start_ts).strftime('%d.%m.%Y') if start_ts else "Unknown Date"
 
-        # --- HRÁČI A RATINGY ---
+        # --- ZPRACOVÁNÍ DETAILNÍCH STATISTIK HRÁČŮ Z /player-statistics ---
+        player_stats_map = {}
+        if pstats_resp.ok:
+            try:
+                pstats_json = await pstats_resp.json()
+
+                # Rekurzivní funkce pro extrakci statistik (API struktura bývá často vnořená)
+                def extract_stats(data):
+                    if isinstance(data, dict):
+                        if "player" in data and "statistics" in data:
+                            p_name = data["player"].get("name")
+                            if p_name:
+                                player_stats_map[p_name] = data["statistics"]
+                        for v in data.values():
+                            extract_stats(v)
+                    elif isinstance(data, list):
+                        for item in data:
+                            extract_stats(item)
+
+                extract_stats(pstats_json)
+            except Exception:
+                pass
+
+        # --- HRÁČI A JEJICH STATISTIKY ---
         home_players_data = []
         away_players_data = []
 
         if lineups_resp.ok:
             lineups_json = await lineups_resp.json()
 
-            # Pomocná funkce pro vytažení dat z listu hráčů
             def parse_players(player_list):
                 extracted = []
                 for p in player_list:
                     p_name = p.get("player", {}).get("name", "Unknown Player")
                     p_pos = p.get("player", {}).get("position", "")  # 'G' = Goalkeeper
+
+                    # 1. Zkusíme statistiky z lineups
                     stats = p.get("statistics", {})
+                    # 2. Pokud jsou prázdné, vezmeme je z naší mapy vytvořené z /player-statistics
+                    if not stats and p_name in player_stats_map:
+                        stats = player_stats_map[p_name]
 
                     # Logika pro brankáře
                     if p_pos == "G":
-                        # SofaScore posílá 'saves' a 'shotsFaced'
                         saves = stats.get("saves", 0)
                         shots = stats.get("shotsFaced", 0)
-                        # Výpočet procent (např. 0.35 pro 35%)
-                        save_percentage = round(saves / shots, 2) if shots and shots > 0 else 0.0
+
+                        # API občas posílá hotové procento
+                        save_pct = stats.get("savePercentage", 0)
+                        # Pokud ho neposlalo a brankář čelil střelám, spočítáme čistá procenta
+                        if save_pct == 0 and shots > 0:
+                            save_pct = round((saves / shots) * 100, 1)
 
                         extracted.append({
                             "jmeno": p_name,
-                            "uspesnost_zakroku": save_percentage,
+                            "uspesnost_zakroku_procenta": float(save_pct),
                             "zakroky": saves
                         })
 
@@ -77,23 +110,25 @@ async def get_match_data(context, match_id):
         # --- KURZY (1X2) ---
         kurz_1, kurz_X, kurz_2 = None, None, None
         if odds_resp.ok:
-            odds_json = await odds_resp.json()
-            for market in odds_json.get("markets", []):
-                if market.get("marketName") == "Full time":
-                    for choice in market.get("choices", []):
-                        name = choice.get("name")
-                        frac = choice.get("fractionalValue")
-                        if frac and "/" in frac:
-                            n, d = frac.split("/")
-                            # Výpočet desetinného kurzu: 1 + (n/d)
-                            decimal_odd = round(1 + (int(n) / int(d)), 2)
-                            if name == "1":
-                                kurz_1 = decimal_odd
-                            elif name == "X":
-                                kurz_X = decimal_odd
-                            elif name == "2":
-                                kurz_2 = decimal_odd
-                    break
+            try:
+                odds_json = await odds_resp.json()
+                for market in odds_json.get("markets", []):
+                    if market.get("marketName") == "Full time":
+                        for choice in market.get("choices", []):
+                            name = choice.get("name")
+                            frac = choice.get("fractionalValue")
+                            if frac and "/" in frac:
+                                n, d = frac.split("/")
+                                decimal_odd = round(1 + (int(n) / int(d)), 2)
+                                if name == "1":
+                                    kurz_1 = decimal_odd
+                                elif name == "X":
+                                    kurz_X = decimal_odd
+                                elif name == "2":
+                                    kurz_2 = decimal_odd
+                        break
+            except Exception:
+                pass
 
         # --- FINÁLNÍ OBJEKT ---
         return {
@@ -113,6 +148,7 @@ async def get_match_data(context, match_id):
     except Exception as e:
         print(f"Chyba u match_id {match_id}: {e}")
         return None
+
 
 async def main():
     async with async_playwright() as p:
@@ -139,20 +175,16 @@ async def main():
                         continue
             print(f"Načteno {len(seen_match_ids)} již zpracovaných zápasů.")
 
-        # Globální čítač a zámek pro zápis do souboru
         state = {"saved_count": len(seen_match_ids)}
         file_lock = asyncio.Lock()
         semaphore = asyncio.Semaphore(CONCURRENCY_LIMIT)
 
-        # 2. DEFINICE WORKERA PRO SOUBĚŽNÉ ZPRACOVÁNÍ ZÁPASŮ
         async def process_match_worker(m_id, file_obj):
-            async with semaphore:  # Zajistí, že nikdy neběží víc než 'CONCURRENCY_LIMIT' úloh
-                # Malé náhodné zpoždění před samotným spuštěním, abychom neodeslali 5 dotazů v jedinou milisekundu
+            async with semaphore:
                 await asyncio.sleep(random.uniform(0.1, 0.8))
-
                 data = await get_match_data(context, m_id)
                 if data:
-                    async with file_lock:  # Zámek: sem v jednu chvíli vstoupí jen jeden zápas
+                    async with file_lock:
                         file_obj.write(json.dumps(data, ensure_ascii=False) + "\n")
                         file_obj.flush()
                         seen_match_ids.add(m_id)
@@ -172,7 +204,7 @@ async def main():
         seasons_data = await seasons_resp.json()
         all_seasons = seasons_data.get("seasons", [])
 
-        with open("bundesliga_data_w_score.jsonl", "a", encoding="utf-8") as f:
+        with open("bundesliga_data_w_kurz.jsonl", "a", encoding="utf-8") as f:
             for season in all_seasons:
                 season_id = str(season.get("id"))
                 season_name = season.get("name", "Unknown")
@@ -204,12 +236,8 @@ async def main():
                         continue
 
                     print(f"Připraveno ke stahování: {len(match_ids_in_season)} nových zápasů v této sezóně.")
-
-                    # 3. SPOUŠTĚNÍ ÚLOH V DÁVKÁCH
-                    # Vytvoříme seznam "slibů" (coroutines) pro všechny zápasy v sezóně
                     tasks = [process_match_worker(m_id, f) for m_id in match_ids_in_season]
 
-                    # Spustíme je všechny. Semafor se postará o to, aby reálně běželo max 5 najednou.
                     if tasks:
                         await asyncio.gather(*tasks)
 
