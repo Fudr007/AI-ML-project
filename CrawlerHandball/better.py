@@ -6,17 +6,18 @@ from datetime import datetime
 from playwright.async_api import async_playwright
 
 TOURNAMENT_ID = "149"
-CONCURRENCY_LIMIT = 5  # Stahujeme max 5 zápasů současně (bezpečný limit proti banu)
+CONCURRENCY_LIMIT = 80
 
 
 async def get_match_data(context, match_id):
     try:
-        # 1. PARALELNÍ VOLÁNÍ: Spustíme oba dotazy současně
+        # 1. PARALELNÍ VOLÁNÍ: Přidán dotaz na kurzy (odds)
         event_task = context.request.get(f"https://www.sofascore.com/api/v1/event/{match_id}")
         lineups_task = context.request.get(f"https://www.sofascore.com/api/v1/event/{match_id}/lineups")
+        odds_task = context.request.get(f"https://www.sofascore.com/api/v1/event/{match_id}/odds/1/all")
 
-        # Počkáme, až se oba dotazy dokončí
-        event_resp, lineups_resp = await asyncio.gather(event_task, lineups_task)
+        # Počkáme, až se VŠECHNY TŘI dotazy dokončí
+        event_resp, lineups_resp, odds_resp = await asyncio.gather(event_task, lineups_task, odds_task)
 
         if not event_resp.ok:
             return None
@@ -41,6 +42,37 @@ async def get_match_data(context, match_id):
             if "away" in lineups_json:
                 away_players = [p.get("player", {}).get("name") for p in lineups_json["away"].get("players", [])]
 
+        # --- ZPRACOVÁNÍ KURZŮ ---
+        kurz_1, kurz_X, kurz_2 = None, None, None
+
+        if odds_resp.ok:
+            try:
+                odds_json = await odds_resp.json()
+                markets = odds_json.get("markets", [])
+
+                # Hledáme trh "Full time" (klasická 1X2 sázka)
+                for market in markets:
+                    if market.get("marketName") == "Full time":
+                        choices = market.get("choices", [])
+                        for choice in choices:
+                            name = choice.get("name")  # "1", "X", nebo "2"
+                            fraction = choice.get("fractionalValue")  # např. "5/2"
+
+                            if fraction and "/" in fraction:
+                                # Převod zlomku na desetinný kurz (např. 5/2 -> 1 + (5/2) = 3.50)
+                                num, den = fraction.split("/")
+                                decimal_odd = round(1 + (int(num) / int(den)), 2)
+
+                                if name == "1":
+                                    kurz_1 = decimal_odd
+                                elif name == "X":
+                                    kurz_X = decimal_odd
+                                elif name == "2":
+                                    kurz_2 = decimal_odd
+                        break  # Jakmile najdeme Full time, nemusíme procházet další trhy (Góly, Handicapy atd.)
+            except Exception as e:
+                print(f"Chyba při parsování kurzů u {match_id}: {e}")
+
         return {
             "match_id": match_id,
             "datum_zapasu": date_final,
@@ -48,6 +80,9 @@ async def get_match_data(context, match_id):
             "hoste_tym": away_team.strip(),
             "goly_domaci": str(home_goals),
             "goly_hoste": str(away_goals),
+            "kurz_domaci": kurz_1,
+            "kurz_remiza": kurz_X,
+            "kurz_hoste": kurz_2,
             "domaci_hraci": home_players,
             "hoste_hraci": away_players
         }
@@ -71,8 +106,8 @@ async def main():
         await page.wait_for_timeout(3000)
 
         seen_match_ids = set()
-        if os.path.exists("bundesliga_data.jsonl"):
-            with open("bundesliga_data.jsonl", "r", encoding="utf-8") as f:
+        if os.path.exists("bundesliga_data_w_kurz.jsonl"):
+            with open("bundesliga_data_w_kurz.jsonl", "r", encoding="utf-8") as f:
                 for line in f:
                     try:
                         data = json.loads(line)
@@ -115,7 +150,7 @@ async def main():
         seasons_data = await seasons_resp.json()
         all_seasons = seasons_data.get("seasons", [])
 
-        with open("bundesliga_data.jsonl", "a", encoding="utf-8") as f:
+        with open("bundesliga_data_w_score.jsonl", "a", encoding="utf-8") as f:
             for season in all_seasons:
                 season_id = str(season.get("id"))
                 season_name = season.get("name", "Unknown")
