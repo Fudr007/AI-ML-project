@@ -5,7 +5,7 @@ def filter_it():
     good = 0
     total = 0
 
-    with open("bundesliga_data.jsonl", "r", encoding="utf-8") as fin, \
+    with open("bundesliga_data_w_kurz.jsonl", "r", encoding="utf-8") as fin, \
         open("bundesliga_data_filtered.jsonl", "w", encoding="utf-8") as fout:
 
         for line in fin:
@@ -16,10 +16,11 @@ def filter_it():
             goly_domaci = int(match_data.get("goly_domaci", 0))
             goly_hoste = int(match_data.get("goly_hoste", 0))
 
-            domaci_hraci = match_data.get("domaci_hraci", [])
-            hoste_hraci = match_data.get("hoste_hraci", [])
+            kurz_domaci = match_data.get("kurz_domaci", None)
+            kurz_hoste = match_data.get("kurz_hoste", None)
+            kurz_remiza = match_data.get("kurz_remiza", None)
 
-            if (goly_domaci == 0 and goly_hoste == 0) or (len(domaci_hraci) == 0 and len(hoste_hraci) == 0):
+            if (goly_domaci == 0 and goly_hoste == 0) or (kurz_domaci is None and kurz_hoste is None and kurz_remiza is None):
                 trash += 1
             else:
                 fout.write(line)

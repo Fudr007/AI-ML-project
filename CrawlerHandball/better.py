@@ -8,14 +8,11 @@ from playwright.async_api import async_playwright
 TOURNAMENT_ID = "149"
 CONCURRENCY_LIMIT = 100
 
-
 async def get_match_data(context, match_id):
     try:
-        # 1. PARALELNÍ VOLÁNÍ: Základní info, Sestavy, Kurzy a Detailní Statistiky Hráčů
         event_task = context.request.get(f"https://www.sofascore.com/api/v1/event/{match_id}")
         lineups_task = context.request.get(f"https://www.sofascore.com/api/v1/event/{match_id}/lineups")
         odds_task = context.request.get(f"https://www.sofascore.com/api/v1/event/{match_id}/odds/1/all")
-        # Přidaný dotaz pro detailní statistiky hráčů
         pstats_task = context.request.get(f"https://www.sofascore.com/api/v1/event/{match_id}/player-statistics")
 
         resps = await asyncio.gather(event_task, lineups_task, odds_task, pstats_task)
@@ -24,7 +21,6 @@ async def get_match_data(context, match_id):
         if not event_resp.ok:
             return None
 
-        # --- ZÁKLADNÍ INFO O ZÁPASU ---
         event_json = await event_resp.json()
         event = event_json.get("event", {})
 
@@ -36,19 +32,21 @@ async def get_match_data(context, match_id):
         start_ts = event.get("startTimestamp")
         date_final = datetime.fromtimestamp(start_ts).strftime('%d.%m.%Y') if start_ts else "Unknown Date"
 
-        # --- ZPRACOVÁNÍ DETAILNÍCH STATISTIK HRÁČŮ Z /player-statistics ---
+        # --- OPRAVA: Párujeme podle ID hráče, ne podle jména! ---
         player_stats_map = {}
         if pstats_resp.ok:
             try:
                 pstats_json = await pstats_resp.json()
 
-                # Rekurzivní funkce pro extrakci statistik (API struktura bývá často vnořená)
                 def extract_stats(data):
                     if isinstance(data, dict):
-                        if "player" in data and "statistics" in data:
-                            p_name = data["player"].get("name")
-                            if p_name:
-                                player_stats_map[p_name] = data["statistics"]
+                        if "player" in data and isinstance(data["player"], dict):
+                            p_id = data["player"].get("id") # Bereme unikátní ID!
+                            if p_id:
+                                if "statistics" in data:
+                                    player_stats_map[p_id] = data["statistics"]
+                                else:
+                                    player_stats_map[p_id] = data
                         for v in data.values():
                             extract_stats(v)
                     elif isinstance(data, list):
@@ -59,7 +57,6 @@ async def get_match_data(context, match_id):
             except Exception:
                 pass
 
-        # --- HRÁČI A JEJICH STATISTIKY ---
         home_players_data = []
         away_players_data = []
 
@@ -69,33 +66,56 @@ async def get_match_data(context, match_id):
             def parse_players(player_list):
                 extracted = []
                 for p in player_list:
+                    p_id = p.get("player", {}).get("id")
                     p_name = p.get("player", {}).get("name", "Unknown Player")
-                    p_pos = p.get("player", {}).get("position", "")  # 'G' = Goalkeeper
+                    p_pos = p.get("player", {}).get("position", "")
 
-                    # 1. Zkusíme statistiky z lineups
+                    # Zkusíme najít stats z lineups, jinak použijeme mapu podle ID
                     stats = p.get("statistics", {})
-                    # 2. Pokud jsou prázdné, vezmeme je z naší mapy vytvořené z /player-statistics
-                    if not stats and p_name in player_stats_map:
-                        stats = player_stats_map[p_name]
+                    if not stats and p_id in player_stats_map:
+                        stats = player_stats_map[p_id]
 
-                    # Logika pro brankáře
                     if p_pos == "G":
-                        saves = stats.get("saves", 0)
-                        shots = stats.get("shotsFaced", 0)
+                        saves = 0
+                        shots = 0
+                        save_pct = 0.0
 
-                        # API občas posílá hotové procento
-                        save_pct = stats.get("savePercentage", 0)
-                        # Pokud ho neposlalo a brankář čelil střelám, spočítáme čistá procenta
-                        if save_pct == 0 and shots > 0:
+                        saves_data = stats.get("saves", stats.get("totalSaves", 0))
+                        shots_data = stats.get("shotsFaced", stats.get("gkShots", 0))
+
+                        # 1. Varianta: String jako "8/25 (32%)"
+                        if isinstance(saves_data, str) and "/" in saves_data:
+                            try:
+                                parts = saves_data.split("/")
+                                saves = int(parts[0].strip())
+                                sub_parts = parts[1].split()
+                                shots = int(sub_parts[0].strip())
+                                if len(sub_parts) > 1:
+                                    pct_str = sub_parts[1].replace("(", "").replace("%)", "").replace("%", "")
+                                    save_pct = float(pct_str)
+                            except:
+                                pass
+
+                        # 2. Varianta: Klasická čísla
+                        else:
+                            try:
+                                saves = int(saves_data) if saves_data else 0
+                                shots = int(shots_data) if shots_data else 0
+                                save_pct = float(stats.get("savePercentage", 0))
+                            except:
+                                pass
+
+                        # Záchranný výpočet
+                        if save_pct == 0.0 and shots > 0:
                             save_pct = round((saves / shots) * 100, 1)
 
                         extracted.append({
                             "jmeno": p_name,
-                            "uspesnost_zakroku_procenta": float(save_pct),
-                            "zakroky": saves
+                            "uspesnost_zakroku_procenta": save_pct,
+                            "zakroky": saves,
+                            "strely_proti": shots
                         })
 
-                    # Logika pro hráče v poli
                     else:
                         p_goals = stats.get("goals", 0)
                         extracted.append({
@@ -107,7 +127,6 @@ async def get_match_data(context, match_id):
             home_players_data = parse_players(lineups_json.get("home", {}).get("players", []))
             away_players_data = parse_players(lineups_json.get("away", {}).get("players", []))
 
-        # --- KURZY (1X2) ---
         kurz_1, kurz_X, kurz_2 = None, None, None
         if odds_resp.ok:
             try:
@@ -120,17 +139,13 @@ async def get_match_data(context, match_id):
                             if frac and "/" in frac:
                                 n, d = frac.split("/")
                                 decimal_odd = round(1 + (int(n) / int(d)), 2)
-                                if name == "1":
-                                    kurz_1 = decimal_odd
-                                elif name == "X":
-                                    kurz_X = decimal_odd
-                                elif name == "2":
-                                    kurz_2 = decimal_odd
+                                if name == "1": kurz_1 = decimal_odd
+                                elif name == "X": kurz_X = decimal_odd
+                                elif name == "2": kurz_2 = decimal_odd
                         break
             except Exception:
                 pass
 
-        # --- FINÁLNÍ OBJEKT ---
         return {
             "match_id": str(match_id),
             "datum_zapasu": date_final,
@@ -246,7 +261,6 @@ async def main():
 
         await browser.close()
         print(f"\nSkript dokončen! Celkem máš uložených {state['saved_count']} unikátních zápasů.")
-
 
 if __name__ == "__main__":
     asyncio.run(main())
