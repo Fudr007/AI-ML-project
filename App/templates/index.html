@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Betting odds prediction</title>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+    <div class="container">
+        <h1>Handball Bundesliga Odds Predictions</h1>
+
+        <form method="POST">
+            <div class="settings-section">
+                <div class="input-group">
+                    <label>Date of the match</label>
+                    <input type="date" name="date" required>
+                </div>
+
+                <div class="quick-load">
+                    <label>Sofascore URL of match</label>
+                    <div class="url-flex">
+                        <input type="text" id="sofascore_url" placeholder="https://www.sofascore.com/...#id:14203134" required>
+                        <button type="button" class="btn-secondary" onclick="fetchRoster()">Submit URL</button>
+                    </div>
+                    <p id="fetch_status"></p>
+                </div>
+            </div>
+
+            <div class="rosters-wrapper">
+                <div class="roster_container home-border">
+                    <h3>Home Team</h3>
+                    <div class="input-group">
+                        <label>Team Name</label>
+                        <input type="text" name="team_home" placeholder="Enter home team..." required>
+                    </div>
+
+                    <div class="controls">
+                        <button type="button" class="btn-add" onclick="addField('gk_home')">+ Goalkeeper</button>
+                        <button type="button" class="btn-add" onclick="addField('pl_home')">+ Player</button>
+                    </div>
+
+                    <div class="player_container">
+                        <div class="player_column" id="gk_home">
+                            <h4>Goalkeepers</h4>
+                            <input type="text" name="gk_home" class="player-input" placeholder="Goalkeeper name" required>
+                        </div>
+                        <div class="player_column" id="pl_home">
+                            <h4>Players</h4>
+                            {% for i in range(6) %}
+                                <input type="text" name="pl_home" placeholder="Player name" required>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="roster_container away-border">
+                    <h3>Away Team</h3>
+                    <div class="input-group">
+                        <label>Team Name</label>
+                        <input type="text" name="team_away" placeholder="Enter away team..." required>
+                    </div>
+
+                    <div class="controls">
+                        <button type="button" class="btn-add" onclick="addField('gk_away')">+ Goalkeeper</button>
+                        <button type="button" class="btn-add" onclick="addField('pl_away')">+ Player</button>
+                    </div>
+
+                    <div class="player_container">
+                        <div class="player-column" id="gk_away">
+                            <h4>Goalkeepers</h4>
+                            <input type="text" name="gk_away" placeholder="Goalkeeper name" required>
+                        </div>
+                        <div class="player-column" id="pl_away">
+                            <h4>Players</h4>
+                            {% for i in range(6) %}
+                                <input type="text" name="pl_away" placeholder="Player name" required>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="submit-area">
+                <button type="submit" class="btn-main">Calculate Predictions</button>
+            </div>
+        </form>
+    </div>
+    {% if results %}
+    <div class="results">
+        <div class="odds">Výhra domácí<br>{{ results.kurz_1 }}</div>
+        <div class="odds">Remíza<br>{{ results.kurz_x }}</div>
+        <div class="odds">Výhra hosté<br>{{ results.kurz_2 }}</div>
+    </div>
+    {% endif %}
+
+    {% if error %}
+    <div class="error-message">
+        {{ error }}
+    </div>
+    {% endif %}
+</body>
+</html>
