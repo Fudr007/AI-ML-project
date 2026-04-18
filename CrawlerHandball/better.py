@@ -32,7 +32,6 @@ async def get_match_data(context, match_id):
         start_ts = event.get("startTimestamp")
         date_final = datetime.fromtimestamp(start_ts).strftime('%d.%m.%Y') if start_ts else "Unknown Date"
 
-        # --- OPRAVA: Párujeme podle ID hráče, ne podle jména! ---
         player_stats_map = {}
         if pstats_resp.ok:
             try:
@@ -41,7 +40,7 @@ async def get_match_data(context, match_id):
                 def extract_stats(data):
                     if isinstance(data, dict):
                         if "player" in data and isinstance(data["player"], dict):
-                            p_id = data["player"].get("id") # Bereme unikátní ID!
+                            p_id = data["player"].get("id")
                             if p_id:
                                 if "statistics" in data:
                                     player_stats_map[p_id] = data["statistics"]
@@ -70,7 +69,6 @@ async def get_match_data(context, match_id):
                     p_name = p.get("player", {}).get("name", "Unknown Player")
                     p_pos = p.get("player", {}).get("position", "")
 
-                    # Zkusíme najít stats z lineups, jinak použijeme mapu podle ID
                     stats = p.get("statistics", {})
                     if not stats and p_id in player_stats_map:
                         stats = player_stats_map[p_id]
@@ -83,7 +81,6 @@ async def get_match_data(context, match_id):
                         saves_data = stats.get("saves", stats.get("totalSaves", 0))
                         shots_data = stats.get("shotsFaced", stats.get("gkShots", 0))
 
-                        # 1. Varianta: String jako "8/25 (32%)"
                         if isinstance(saves_data, str) and "/" in saves_data:
                             try:
                                 parts = saves_data.split("/")
@@ -96,7 +93,6 @@ async def get_match_data(context, match_id):
                             except:
                                 pass
 
-                        # 2. Varianta: Klasická čísla
                         else:
                             try:
                                 saves = int(saves_data) if saves_data else 0
@@ -105,7 +101,6 @@ async def get_match_data(context, match_id):
                             except:
                                 pass
 
-                        # Záchranný výpočet
                         if save_pct == 0.0 and shots > 0:
                             save_pct = round((saves / shots) * 100, 1)
 
@@ -260,7 +255,7 @@ async def main():
                     print(f"Chyba při stahování sezóny {season_name}: {e}")
 
         await browser.close()
-        print(f"\nSkript dokončen! Celkem máš uložených {state['saved_count']} unikátních zápasů.")
+        print(f"\nSkript dokončen! Celkem uložených {state['saved_count']} unikátních zápasů.")
 
 if __name__ == "__main__":
     asyncio.run(main())

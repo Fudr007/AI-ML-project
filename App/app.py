@@ -187,7 +187,7 @@ def index():
                 "den_v_tydnu": date.dayofweek,
                 "elo_domaci": elo_h,
                 "elo_hoste": elo_a,
-                "elo_rozdil": elo_h + 50 - elo_a
+                "elo_rozdil": elo_h - elo_a
             }])
 
             prob_1 = np.clip(model_home.predict(input_for_models)[0], 0.01, 0.99)
