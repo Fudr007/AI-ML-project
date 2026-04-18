@@ -9,7 +9,6 @@ from curl_cffi import requests as curl_requests
 
 app = Flask(__name__)
 
-# 1. Načtení modelů
 with open('model_domaci.dat', 'rb') as f:
     model_home = pickle.load(f)
 with open('model_remiza.dat', 'rb') as f:
@@ -216,7 +215,7 @@ def fetch_roster():
 
     match = re.search(r'id:(\d+)', url)
     if not match:
-        return jsonify({'error': 'Nepodařilo se najít ID zápasu v odkazu. Zkontroluj URL.'}), 400
+        return jsonify({'error': 'There is no ID match in the provided URL. Check legitimacy of the URL'}), 400
 
     event_id = match.group(1)
     api_url = f"https://api.sofascore.com/api/v1/event/{event_id}/lineups"
@@ -233,6 +232,9 @@ def fetch_roster():
     try:
         response = curl_requests.get(api_url, headers=headers, impersonate="chrome110")
         response_teams = curl_requests.get(api_url_teams, headers=headers, impersonate="chrome110")
+
+        if response.status_code == 404:
+            return jsonify({'error': f'Lineup for this event isnt there yet. Code: {response.status_code}'}), 404
 
         if response.status_code != 200 or response_teams.status_code != 200:
             return jsonify({'error': f'Blocked or other error. Code: {response.status_code}'}), 403
