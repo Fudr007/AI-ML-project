@@ -147,6 +147,8 @@ def index():
             form_of_gk(away_gk)
 
             history_home = history[(history['domaci_tym'] == team_home) | (history['hoste_tym'] == team_home)]
+            if history_home.empty:
+                raise Exception("No data for this team in the history. Check the spelling or try another team.")
             history_home = history_home[history_home['datum_zapasu'] < date].iloc[-1]
             if history_home['domaci_tym'] == team_home:
                 elo_h = history_home['elo_domaci']
@@ -158,6 +160,8 @@ def index():
                 raise Exception()
 
             history_away = history[(history['domaci_tym'] == team_away) | (history['hoste_tym'] == team_away)]
+            if history_home.empty:
+                raise Exception("No data for this team in the history. Check the spelling or try another team.")
             history_away = history_away[history_away['datum_zapasu'] < date].iloc[-1]
             if history_away['domaci_tym'] == team_away:
                 elo_a = history_away['elo_domaci']
