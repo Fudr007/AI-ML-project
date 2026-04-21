@@ -1,0 +1,28 @@
+Zapasy
+9.66 16.59 1.2 vs 8.50 11.0 1.22  vyhra hoste	trefa
+3.27 9.43 1.7 vs 2.4 7.5 1.9 remiza		ne
+1.15 21.9 12.23 vs 1.08 16.0 13.0 remiza	ne
+3.01 9.22 1.79 vs 1.5 8.5 3.8 vyhra hoste	trefa
+4.51 12.73 1.43 vs 3.3 8.5 1.57 vyhra hoste	trefa
+1.13 21.25 14.8 vs 1.04 22.0 20.0 vyhra domaci	trefa
+5.73 11.25 1.36 vs 3.60 8.50 1.50 vyhra domaci	ne
+3.46 11.8 1.6 vs 3.5 8.5 1.5 vyhra hoste	trefa
+6.08 15.04 1.3 vs 8.0 12.0 1.18 vyhra hoste	trefa
+3.1 10.15 1.73 vs 1.9 7.5 2.4 vyhra hoste	trefa
+5.34 10.81 1.39 vs 2.7 8.0 1.78 vyhra hoste	trefa
+1.2 22.43 8.29 vs 1.09 16.0 13.0 vyhra domaci	trefa
+4.49 11.95 1.44 vs 3.20 8.5 1.6 vyhra hoste	trefa
+1.18 17.4 10.47 vs 1.06 20.0 15.0 vyhra domaci	trefa
+3.23 13.46 1.62 vs 3.4 8.5 1.55 vyhra hoste	trefa
+3.18 9.51 1.72 vs 2.05 7.5 2.25 remiza		ne
+1.13 22.1 14.25 vs 1.05 20.0 18.0 vyhra domaci	trefa
+5.44 10.34 1.39 vs 4.25 9.0 1.4 vyhra hoste	trefa
+
+18 zápasů
+14 trefa
+4  netrefil
+3 ze 4 netrefenych jsou remizy
+
+Pátek
+gop vs low 4.35 10.6 1.48 vs 2.05 7.50 2.25 bez soupisek
+fuch vs gumm 1.41 10.12 5.27 vs 1.14 14.0 9.0 bez soupisek

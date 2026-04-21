@@ -324,7 +324,7 @@ def fetch_roster_prev():
         home_team = json_data.get('event', {}).get('homeTeam', {}).get('name', '')
 
         json_data = response_teams_a.json()
-        away_team = json_data.get('event', {}).get('awayTeam', {}).get('name', '')
+        away_team = json_data.get('event', {}).get('homeTeam', {}).get('name', '')
 
         json_data = response_h.json()
 
