@@ -280,5 +280,84 @@ def fetch_roster():
     except Exception as e:
         return jsonify({'error': f'Error while processing data : {str(e)}'}), 500
 
+@app.route('/fetch_roster_prev', methods=['POST'])
+def fetch_roster_prev():
+    data = request.get_json()
+    url_home = data.get('url_home', '')
+    url_away = data.get('url_away', '')
+
+    match_h = re.search(r'id:(\d+)', url_home)
+    match_a = re.search(r'id:(\d+)', url_away)
+    if not match_h or not match_a:
+        return jsonify({'error': 'There is no ID match in the provided URLs. Check legitimacy of the URL'}), 400
+
+    event_id = match_h.group(1)
+    api_url_h = f"https://api.sofascore.com/api/v1/event/{event_id}/lineups"
+    api_url_teams_h = f"https://api.sofascore.com/api/v1/event/{event_id}"
+
+    event_id = match_a.group(1)
+    api_url_a = f"https://api.sofascore.com/api/v1/event/{event_id}/lineups"
+    api_url_teams_a = f"https://api.sofascore.com/api/v1/event/{event_id}"
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "*/*",
+        "Referer": "https://www.sofascore.com/",
+        "Origin": "https://www.sofascore.com",
+        "Cache-Control": "no-cache"
+    }
+
+    try:
+        response_h = curl_requests.get(api_url_h, headers=headers, impersonate="chrome110")
+        response_teams_h = curl_requests.get(api_url_teams_h, headers=headers, impersonate="chrome110")
+
+        response_a = curl_requests.get(api_url_a, headers=headers, impersonate="chrome110")
+        response_teams_a = curl_requests.get(api_url_teams_a, headers=headers, impersonate="chrome110")
+
+        if response_h.status_code == 404 or response_a.status_code == 404:
+            return jsonify({'error': f'Lineup for this event isnt there yet. Code: {response_h.status_code}'}), 404
+
+        if (response_h.status_code != 200 or response_teams_h.status_code != 200) or (response_a.status_code != 200 or response_teams_a.status_code != 200):
+            return jsonify({'error': f'Blocked or other error. Code: {response_h.status_code}'}), 403
+
+        json_data = response_teams_h.json()
+        home_team = json_data.get('event', {}).get('homeTeam', {}).get('name', '')
+
+        json_data = response_teams_a.json()
+        away_team = json_data.get('event', {}).get('awayTeam', {}).get('name', '')
+
+        json_data = response_h.json()
+
+        home_players = [
+            {
+                'name': p['player']['name'],
+                'position': p.get('position', '')
+            }
+            for p in json_data.get('home', {}).get('players', [])
+        ]
+
+        json_data = response_a.json()
+
+        away_players = [
+            {
+                'name': p['player']['name'],
+                'position': p.get('position', '')
+            }
+            for p in json_data.get('home', {}).get('players', [])
+        ]
+
+        if not home_players and not away_players:
+            return jsonify({'error': 'Rosters arent there yet.'}), 404
+
+        return jsonify({
+            'home_team': home_team,
+            'away_team': away_team,
+            'home_players': home_players,
+            'away_players': away_players
+        })
+
+    except Exception as e:
+        return jsonify({'error': f'Error while processing data : {str(e)}'}), 500
+
 if __name__ == '__main__':
     app.run(debug=True)

@@ -26,6 +26,19 @@
                     </div>
                     <p id="fetch_status"></p>
                 </div>
+                <div class="quick-load">
+                    <h2>Roosters from previous matches</h2>
+                    <label>Sofascore URL of match home team</label>
+                    <div class="url-flex">
+                        <input type="text" id="sofascore_url_home" placeholder="https://www.sofascore.com/...#id:14203134">
+                    </div>
+                    <label>Sofascore URL of match away team</label>
+                    <div class="url-flex">
+                        <input type="text" id="sofascore_url_away" placeholder="https://www.sofascore.com/...#id:14203134">
+                    </div>
+                    <button type="button" class="btn-secondary" onclick="fetchPrevRooster()">Submit URLs</button>
+                    <p id="fetch_status_prev"></p>
+                </div>
             </div>
 
             <div class="rosters-wrapper">
